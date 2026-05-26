@@ -1,0 +1,66 @@
+# Request Module - Git Ignore
+
+# Cache files
+*.cache
+*.swp
+*.swo
+*~
+
+# PowerShell cache
+*.ps1xml
+$PSHOME
+
+# Test results
+TestResults/
+Tests/reports/
+*.trx
+*.coverage
+*.coveragexml
+
+# Build outputs
+bin/
+obj/
+out/
+publish/
+Package/
+
+# IDE specific
+.vscode/launch.json
+.vscode/tasks.json
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Sensitive data
+*.key
+*.pem
+*.pfx
+secrets.json
+credentials.json
+
+# Node modules (if using npm for tooling)
+node_modules/
+
+# NuGet packages
+*.nupkg
+packages/
+
+# Coverage reports
+coverage/
+htmlcov/
