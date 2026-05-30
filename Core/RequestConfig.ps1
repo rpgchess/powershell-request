@@ -32,8 +32,19 @@
 class RequestConfig {
     # Configuração básica
     [string] $BaseUrl
+    
+    [ValidateRange(1, 300)]
     [int] $TimeoutSeconds = 30
+    
+    [ValidateRange(0, 10)]
     [int] $MaxRetries = 3
+    
+    # Configuração de retry (backoff exponencial)
+    [ValidateRange(1.0, 10.0)]
+    [double] $RetryBackoffMultiplier = 2.0  # Padrão: 2^attempt
+    
+    [ValidateRange(1, 300)]
+    [int] $RetryMaxDelaySeconds = 60  # Limite superior do delay
     
     # Autenticação
     [AuthType] $AuthType = [AuthType]::None
@@ -98,11 +109,12 @@ class RequestConfig {
     }
     
     # Método para obter descrição da configuração (para debug)
+    # IMPORTANTE: Credenciais são sanitizadas para prevenir vazamento em logs
     [string] ToString() {
         $authInfo = switch ($this.AuthType) {
-            'Basic' { "User: $($this.Username)" }
-            'Bearer' { "Token: $($this.Token.Substring(0, [Math]::Min(10, $this.Token.Length)))..." }
-            'Session' { "Session: $($this.SessionId.Substring(0, [Math]::Min(10, $this.SessionId.Length)))..." }
+            'Basic' { "User: $($this.Username), Password: [REDACTED]" }
+            'Bearer' { "Token: [REDACTED]" }
+            'Session' { "SessionId: [REDACTED]" }
             'None' { "No Auth" }
         }
         

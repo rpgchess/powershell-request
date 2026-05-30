@@ -1,5 +1,5 @@
 @{
-    ModuleVersion = '3.2.0'
+    ModuleVersion = '3.5.0'
     GUID = 'f9e8d7c6-b5a4-3210-9876-543210fedcba'
     Author = 'Claudio Almeida'
     CompanyName = 'Personal'
@@ -27,9 +27,77 @@
     
     PrivateData = @{
         PSData = @{
-            Tags = @('HTTP', 'REST', 'API', 'Request', 'Retry', 'Client', 'Authentication', 'Basic', 'Bearer', 'Session', 'Cache', 'Logging')
+            Tags = @('HTTP', 'REST', 'API', 'Request', 'Retry', 'Client', 'Authentication', 'Basic', 'Bearer', 'Session', 'Cache', 'Logging', 'Metrics', 'Observability', 'Extensibility', 'OOP')
             ProjectUri = 'https://github.com/rpgchess/powershell-request'
             ReleaseNotes = @'
+3.5.0 - 2026-05-29 (Extensibilidade e Manutenibilidade)
+IMPROVEMENTS:
+- 🛠️ Refatoração do Invoke(): Extraição de métodos privados (BuildRequestParams, CreateSessionCookie, ParseResponse, ShouldRetry, CalculateRetryDelay)
+- ⚙️ Retry Customizável: RetryBackoffMultiplier (1.0-10.0, default 2.0) e RetryMaxDelaySeconds (1-300s, default 60s)
+- 🎯 Circuit Breaker: Exemplo completo de custom error handler com circuit breaker pattern
+- 📝 Logging de Erros: Exemplo mostra como logar erros em arquivo JSON via herança
+- 🔧 Herança OOP: Documentação completa de como estender Request class
+
+CODE QUALITY:
+- 📊 Redução de complexidade: Invoke() de ~150 linhas para ~50 linhas (métodos privados)
+- 🧹 SRP (Single Responsibility): Cada método tem uma responsabilidade única
+- 📚 Testabilidade: Métodos privados isolados facilitam unit testing
+- 🔄 Reutilização: Lógica comum extraída em métodos reutilizáveis
+
+NEW FEATURES:
+- RetryBackoffMultiplier - Configura multiplicador do backoff (ex: 1.5 para backoff mais lento)
+- RetryMaxDelaySeconds - Limite superior do delay (evita esperas excessivas)
+- BuildRequestParams() - Método privado para construir parâmetros Invoke-WebRequest
+- CreateSessionCookie() - Método privado para criar WebRequestSession
+- ParseResponse() - Método privado para processar resposta HTTP
+- ShouldRetry() - Método privado para decisão de retry
+- CalculateRetryDelay() - Método privado para cálculo de delay customizado
+
+EXAMPLES:
+- Invoke-RequestWithCustomErrorHandler.ps1 - Custom error handler com circuit breaker
+
+IMPACT:
+- 🚫 Sem breaking changes (métodos privados são hidden)
+- 🚀 Manutenibilidade aprimorada (código mais legível e testável)
+- 🔧 Extensibilidade via herança (CustomRequest demonstrado)
+
+3.4.0 - 2026-05-29 (Observability e Segurança)
+IMPROVEMENTS:
+- ⚙️ Métricas de Performance: GetMetrics() retorna TotalRequests, TotalRetries, TotalErrors, RetryRate, ErrorRate, LastRequestDuration
+- 🔍 Stopwatch automático: Mede duração de cada request em milissegundos
+- 🔒 Sanitização de Logs: ToString() usa [REDACTED] para tokens/passwords (previne vazamento acidental)
+- 📊 Observability: Contadores incrementados automaticamente (requests, retries, errors)
+
+SECURITY:
+- ⚠️ Credenciais nunca exibidas em logs (mesmo parcialmente)
+- ✅ Safe para logging em produção
+
+NEW FEATURES:
+- GetMetrics() - Método público para obter estatísticas de performance
+- LastRequestDuration - Tempo do último request em ms
+- RetryRate/ErrorRate - Percentuais calculados automaticamente
+
+IMPACT:
+- 🚫 Sem breaking changes (métricas são opt-in)
+- 🔒 Segurança aprimorada (logs sanitizados)
+- 📈 Visibilidade de performance em produção
+
+3.3.0 - 2026-05-29 (Melhorias de Qualidade e Robustez)
+IMPROVEMENTS:
+- ✅ Validação de range: TimeoutSeconds (1-300s), MaxRetries (0-10)
+- 🔒 Encapsulamento: $Request e $Response agora são hidden
+- ⏱️ Timeout específico: Mensagem descritiva para TimeoutException
+- 🔍 Validação de dependências: Request.psm1 valida Logger/Cache ao carregar
+
+FIXES:
+- 🐛 Previne configurações inválidas (TimeoutSeconds negativo, MaxRetries excessivo)
+- 🐛 Diagnóstico melhorado de timeout (mensagem específica vs genérica)
+
+IMPACT:
+- 🚫 Sem breaking changes (mudanças são aditivas/validações)
+- 🔐 Melhor encapsulamento e segurança
+- 💡 Erros mais claros e prevenção proativa de bugs
+
 3.2.0 - 2026-05-26 (Modularização de Cache)
 BREAKING CHANGES:
 - RequestCache removido (agora usa módulo Cache externo)

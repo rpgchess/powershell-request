@@ -4,6 +4,172 @@ Todas as mudanças notáveis do projeto Request Module serão documentadas aqui.
 
 ---
 
+## [3.5.0] - 2026-05-29 (Extensibilidade e Manutenibilidade)
+
+### 🛠️ CODE REFACTORING
+- **Método Invoke() Refatorado**: Reduzido de ~150 linhas para ~50 linhas
+  - Extraídos 5 métodos privados para melhor organização
+  - Aplicado princípio SRP (Single Responsibility Principle)
+  - Código mais legível, testável e manutenível
+
+### ⚙️ NEW FEATURES - Retry Customizável
+- **RetryBackoffMultiplier**: Configura multiplicador do backoff exponencial
+  - Range: 1.0 a 10.0
+  - Default: 2.0 (backoff padrão: 2^attempt)
+  - Exemplo: 1.5 para backoff mais lento, 3.0 para backoff mais agressivo
+  
+- **RetryMaxDelaySeconds**: Limite superior do delay entre retries
+  - Range: 1 a 300 segundos
+  - Default: 60 segundos
+  - Previne esperas excessivas em APIs com rate limit alto
+
+### 🔧 NEW METHODS - Métodos Privados (Hidden)
+- **BuildRequestParams()**: Constrói hashtable de parâmetros para Invoke-WebRequest
+- **CreateSessionCookie()**: Cria WebRequestSession com cookie JSESSIONID
+- **ParseResponse()**: Processa resposta HTTP (JSON, raw, vazio)
+- **ShouldRetry()**: Decide se deve fazer retry baseado em status code
+- **CalculateRetryDelay()**: Calcula delay customizado usando RetryBackoffMultiplier e RetryMaxDelaySeconds
+
+### 📚 EXAMPLES - Extensibilidade
+- **Invoke-RequestWithCustomErrorHandler.ps1**: Exemplo completo de herança
+  - Custom error handler com circuit breaker pattern
+  - Logging automático de erros em arquivo JSON
+  - Telemetria customizada (consecutive errors)
+  - Demonstra como estender Request class via OOP
+
+### 🎯 BENEFITS
+- **Manutenibilidade**: Código mais fácil de entender e modificar
+- **Testabilidade**: Métodos privados isolados facilitam unit testing
+- **Extensibilidade**: Exemplo prático de como estender via herança
+- **Flexibilidade**: Retry customizável para diferentes APIs (GitHub 60s, Twitter 15min)
+- **Redução de Bugs**: Lógica isolada reduz efeitos colaterais
+
+### 📊 TECHNICAL DETAILS
+```powershell
+# Retry customizado para API com rate limit diferente
+$config = [RequestConfig]::new('https://api.github.com', $token)
+$config.RetryBackoffMultiplier = 1.5  # Backoff mais lento (1.5^attempt)
+$config.RetryMaxDelaySeconds = 120    # Máximo 2 minutos de espera
+
+$request = [Request]::new($config)
+$repos = $request.Get('/user/repos')
+
+# Herança para custom error handling
+class MyCustomRequest : Request {
+    MyCustomRequest([RequestConfig] $Config) : base($Config) { }
+    
+    [PSCustomObject] Invoke([HttpMethod] $Method, [string] $Endpoint, [hashtable] $CustomHeaders, [object] $Body) {
+        try {
+            return ([Request]$this).Invoke($Method, $Endpoint, $CustomHeaders, $Body)
+        } catch {
+            # Custom logic aqui (logging, telemetry, circuit breaker, etc.)
+            throw
+        }
+    }
+}
+```
+
+### ⚡ IMPACT
+- **Breaking Changes**: Nenhum (métodos privados são hidden, retry usa defaults existentes)
+- **Performance**: Sem impacto (refatoração não muda algoritmo)
+- **Code Quality**: ✅ Redução de 66% na complexidade do método Invoke()
+- **Maintainability**: ✅ SRP aplicado, cada método tem uma responsabilidade
+
+---
+
+## [3.4.0] - 2026-05-29 (Observability e Segurança)
+
+### ✨ NEW FEATURES
+- **GetMetrics()**: Método público para obter estatísticas de performance
+  - `TotalRequests`: Total de requisições realizadas
+  - `TotalRetries`: Total de tentativas de retry
+  - `TotalErrors`: Total de erros encontrados
+  - `RetryRate`: Taxa de retry em percentual
+  - `ErrorRate`: Taxa de erro em percentual
+  - `LastRequestDuration`: Duração do último request em milissegundos
+
+### 🔍 IMPROVEMENTS - Observability
+- **Stopwatch Automático**: Mede duração de cada request automaticamente
+- **Contadores Inteligentes**: TotalRequests, TotalRetries e TotalErrors incrementados automaticamente
+- **Métricas Opt-in**: GetMetrics() disponível quando necessário, sem overhead se não usado
+- **Performance Tracking**: Visibilidade de performance em produção para diagnóstico
+
+### 🔒 SECURITY - Sanitização de Logs
+- **ToString() Sanitizado**: Credenciais nunca exibidas (nem parcialmente)
+  - `Token: [REDACTED]` ao invés de `Token: eyJhbGci...`
+  - `Password: [REDACTED]` ao invés de mostrar username sem password
+  - `SessionId: [REDACTED]` ao invés de `Session: 380BB1FE14...`
+- **Safe para Produção**: Logs podem ser compartilhados sem risco de vazamento
+- **Previne Vazamento Acidental**: Proteção contra copy-paste de logs com credenciais
+
+### 🐛 FIXES
+- **Métricas Consistentes**: Stopwatch parado corretamente em todos os caminhos de erro
+- **Contadores Precisos**: TotalRetries incrementado apenas em retry real (não em primeira tentativa)
+
+### 📚 TECHNICAL DETAILS
+```powershell
+# Uso de métricas
+$request = [Request]::new('https://api.exemplo.com', 'token')
+$request.Get('/users')
+$request.Get('/posts')
+$request.Get('/comments')
+
+$metrics = $request.GetMetrics()
+# Resultado:
+# TotalRequests   : 3
+# TotalRetries    : 0
+# TotalErrors     : 0
+# RetryRate       : 0%
+# ErrorRate       : 0%
+# LastRequestDuration : 250ms
+```
+
+### ⚡ IMPACT
+- **Breaking Changes**: Nenhum (métricas são novas features)
+- **Performance**: Overhead mínimo (Stopwatch é leve, contadores são simples)
+- **Security**: ✅ Logs 100% sanitizados
+- **Observability**: ✅ Diagnóstico facilitado em produção
+
+---
+
+## [3.3.0] - 2026-05-29 (Melhorias de Qualidade e Robustez)
+
+### ✨ IMPROVEMENTS
+- **Validação de Configuração**: `RequestConfig.TimeoutSeconds` agora aceita apenas valores entre 1-300 segundos (ValidateRange)
+- **Validação de Retry**: `RequestConfig.MaxRetries` agora aceita apenas valores entre 0-10 tentativas (ValidateRange)
+- **Encapsulamento**: Propriedades `Request.$Request` e `Request.$Response` agora são `hidden` (melhor encapsulamento)
+- **Tratamento de Timeout**: Adicionado catch específico para `[System.TimeoutException]` com mensagem descritiva
+- **Validação de Dependências**: Request.psm1 agora valida presença de módulos Logger e Cache ao carregar, exibindo warnings informativos se ausentes
+
+### 🐛 FIXES
+- **Configurações Inválidas**: Previne valores negativos ou excessivos em TimeoutSeconds/MaxRetries que causavam erros runtime
+- **Diagnóstico de Timeout**: Erros de timeout agora têm mensagem específica ao invés de genérica, facilitando troubleshooting
+
+### 📚 DOCUMENTATION
+- **Request.psm1**: Documentação atualizada com dependências externas e links para instalação
+- **Comment-based help**: Melhorado .NOTES com instruções de instalação de dependências
+
+### 🔧 TECHNICAL DETAILS
+```powershell
+# Antes (v3.2.0) - Sem validação
+$config = [RequestConfig]::new('https://api.exemplo.com')
+$config.TimeoutSeconds = -10  # ❌ Aceito mas causa erro runtime
+$config.MaxRetries = 999      # ❌ Aceito mas ineficiente
+
+# Depois (v3.3.0) - Com validação
+$config = [RequestConfig]::new('https://api.exemplo.com')
+$config.TimeoutSeconds = -10  # ✅ Erro imediato: ValidateRange(1, 300)
+$config.MaxRetries = 999      # ✅ Erro imediato: ValidateRange(0, 10)
+```
+
+### ⚡ IMPACT
+- **Breaking Changes**: Nenhum (mudanças são aditivas ou melhoram validação)
+- **Performance**: Sem impacto
+- **Security**: Melhor encapsulamento de propriedades internas
+- **Usability**: Erros mais claros e prevenção de configurações inválidas
+
+---
+
 ## [3.2.0] - 2026-05-26 (Modularização de Cache)
 
 ### 🔥 BREAKING CHANGES

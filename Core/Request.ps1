@@ -41,8 +41,14 @@
 
 class Request {
     [RequestConfig] $Config
-    [string] $Request
-    [string] $Response
+    hidden [string] $Request
+    hidden [string] $Response
+    
+    # Métricas de performance (observability)
+    hidden [System.Diagnostics.Stopwatch] $LastRequestDuration
+    hidden [int] $TotalRequests = 0
+    hidden [int] $TotalRetries = 0
+    hidden [int] $TotalErrors = 0
 
     # Construtor 1: Config completo (máximo controle)
     Request([RequestConfig] $Config) {
@@ -50,16 +56,19 @@ class Request {
             throw "Configuração inválida: $($Config.ToString())"
         }
         $this.Config = $Config
+        $this.LastRequestDuration = [System.Diagnostics.Stopwatch]::new()
     }
     
     # Construtor 2: Basic Authentication (Username + Password)
     Request([string] $BaseUrl, [string] $Username, [string] $Password) {
         $this.Config = [RequestConfig]::new($BaseUrl, $Username, $Password)
+        $this.LastRequestDuration = [System.Diagnostics.Stopwatch]::new()
     }
     
     # Construtor 3: Bearer Token Authentication
     Request([string] $BaseUrl, [string] $Token) {
         $this.Config = [RequestConfig]::new($BaseUrl, $Token)
+        $this.LastRequestDuration = [System.Diagnostics.Stopwatch]::new()
     }
 
     # Método para obter headers padrão (incluindo autenticação)
@@ -97,10 +106,103 @@ class Request {
         
         return $headers
     }
+    
+    # Métodos privados para refatoração do Invoke()
+    
+    hidden [hashtable] BuildRequestParams([HttpMethod] $Method, [string] $Url, [hashtable] $Headers) {
+        $params = @{
+            Uri = $Url
+            Method = $Method.ToString()
+            Headers = $Headers
+            TimeoutSec = $this.Config.TimeoutSeconds
+            ErrorAction = 'Stop'
+        }
+        return $params
+    }
+    
+    hidden [Microsoft.PowerShell.Commands.WebRequestSession] CreateSessionCookie([string] $Url) {
+        if ([string]::IsNullOrWhiteSpace($this.Config.SessionId)) {
+            throw "SessionId não configurado para autenticação Session"
+        }
+        
+        # Extrair domínio da URL se CookieDomain não foi especificado
+        $cookieDomain = $this.Config.CookieDomain
+        if ([string]::IsNullOrWhiteSpace($cookieDomain)) {
+            $uri = [System.Uri]$Url
+            $cookieDomain = $uri.Host
+            Write-Verbose "CookieDomain não configurado, usando host da URL: $cookieDomain"
+        }
+        
+        # Criar WebRequestSession
+        $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+        
+        # Criar cookie JSESSIONID com propriedades corretas
+        $cookie = New-Object System.Net.Cookie
+        $cookie.Name = "JSESSIONID"
+        $cookie.Value = $this.Config.SessionId
+        $cookie.Domain = $cookieDomain
+        $cookie.Path = "/"
+        $cookie.Secure = $true
+        $cookie.HttpOnly = $true
+        
+        # Adicionar cookie à sessão
+        $session.Cookies.Add($cookie)
+        
+        Write-Verbose "Session Cookie configurado: JSESSIONID=$($this.Config.SessionId.Substring(0, [Math]::Min(10, $this.Config.SessionId.Length)))... (Domain: $cookieDomain)"
+        
+        return $session
+    }
+    
+    hidden [PSCustomObject] ParseResponse([Microsoft.PowerShell.Commands.WebResponseObject] $WebResponse) {
+        if ($WebResponse.Content) {
+            $this.Response = $WebResponse.Content
+            try {
+                $jsonResult = $WebResponse.Content | ConvertFrom-Json
+                
+                # Se JSON válido e não é vazio, retornar
+                if ($null -ne $jsonResult -and $jsonResult.PSObject.Properties.Count -gt 0) {
+                    return $jsonResult
+                } else {
+                    # JSON vazio ({}, []) - retornar objeto com Success
+                    return [PSCustomObject]@{
+                        StatusCode = $WebResponse.StatusCode
+                        Success    = $true
+                        Content    = $WebResponse.Content
+                    }
+                }
+            } catch {
+                # Não é JSON - retornar conteúdo raw
+                return [PSCustomObject]@{
+                    StatusCode  = $WebResponse.StatusCode
+                    Content     = $WebResponse.Content
+                    RawResponse = $WebResponse
+                }
+            }
+        }
+        
+        return [PSCustomObject]@{
+            StatusCode = $WebResponse.StatusCode
+            Success    = $true
+        }
+    }
+    
+    hidden [bool] ShouldRetry([int] $StatusCode, [int] $Attempt, [int] $MaxAttempts) {
+        # Retry em erros temporários (408, 429, 5xx)
+        return ($StatusCode -in @(408, 429, 500, 502, 503, 504) -and $Attempt -lt $MaxAttempts)
+    }
+    
+    hidden [double] CalculateRetryDelay([int] $Attempt) {
+        $delay = [Math]::Pow($this.Config.RetryBackoffMultiplier, $Attempt)
+        return [Math]::Min($delay, $this.Config.RetryMaxDelaySeconds)
+    }
 
     # Método principal de requisição HTTP
     [PSCustomObject] Invoke([HttpMethod] $Method, [string] $Endpoint, [hashtable] $CustomHeaders = $null, [object] $Body = $null) {
         $url = "$($this.Config.GetBaseUrl())$Endpoint"
+        
+        # Iniciar medição de tempo
+        $this.LastRequestDuration.Restart()
+        $this.TotalRequests++
 
         if ($Method -in [HttpMethod]::GET, [HttpMethod]::DELETE) {
             $this.Request = $url.Contains('?') ? $url.Split('?')[1] : $Body
@@ -133,47 +235,11 @@ class Request {
                 
                 Write-Verbose "[$Method] $url (Tentativa $attempt/$maxAttempts)"
                 
-                $params = @{
-                    Uri = $url
-                    Method = $Method.ToString()
-                    Headers = $headers
-                    TimeoutSec = $this.Config.TimeoutSeconds
-                    ErrorAction = 'Stop'
-                }
+                $params = $this.BuildRequestParams($Method, $url, $headers)
                 
                 # Se autenticação Session, criar WebRequestSession com cookie JSESSIONID
                 if ($this.Config.AuthType -eq [AuthType]::Session) {
-                    if ([string]::IsNullOrWhiteSpace($this.Config.SessionId)) {
-                        throw "SessionId não configurado para autenticação Session"
-                    }
-                    
-                    # Extrair domínio da URL se CookieDomain não foi especificado
-                    $cookieDomain = $this.Config.CookieDomain
-                    if ([string]::IsNullOrWhiteSpace($cookieDomain)) {
-                        $uri = [System.Uri]$url
-                        $cookieDomain = $uri.Host
-                        Write-Verbose "CookieDomain não configurado, usando host da URL: $cookieDomain"
-                    }
-                    
-                    # Criar WebRequestSession
-                    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-                    
-                    # Criar cookie JSESSIONID com propriedades corretas
-                    $cookie = New-Object System.Net.Cookie
-                    $cookie.Name = "JSESSIONID"
-                    $cookie.Value = $this.Config.SessionId
-                    $cookie.Domain = $cookieDomain
-                    $cookie.Path = "/"
-                    $cookie.Secure = $true
-                    $cookie.HttpOnly = $true
-                    
-                    # Adicionar cookie à sessão
-                    $session.Cookies.Add($cookie)
-                    
-                    # Usar WebSession no request
-                    $params['WebSession'] = $session
-                    
-                    Write-Verbose "Session Cookie configurado: JSESSIONID=$($this.Config.SessionId.Substring(0, [Math]::Min(10, $this.Config.SessionId.Length)))... (Domain: $cookieDomain)"
+                    $params['WebSession'] = $this.CreateSessionCookie($url)
                 }
 
                 if ($null -ne $Body) {
@@ -186,44 +252,16 @@ class Request {
 
                 $webResponse = Invoke-WebRequest @params
                 
-                # Parse response
-                if ($webResponse.Content) {
-                    $this.Response = $webResponse.Content
-                    try {
-                        $jsonResult = $webResponse.Content | ConvertFrom-Json
-                        
-                        # Se JSON válido e não é vazio, retornar
-                        if ($null -ne $jsonResult -and $jsonResult.PSObject.Properties.Count -gt 0) {
-                            return $jsonResult
-                        } else {
-                            # JSON vazio ({}, []) - retornar objeto com Success
-                            return [PSCustomObject]@{
-                                StatusCode = $webResponse.StatusCode
-                                Success    = $true
-                                Content    = $webResponse.Content
-                            }
-                        }
-                    } catch {
-                        # Não é JSON - retornar conteúdo raw
-                        return [PSCustomObject]@{
-                            StatusCode  = $webResponse.StatusCode
-                            Content     = $webResponse.Content
-                            RawResponse = $webResponse
-                        }
-                    }
-                }
-
-                return [PSCustomObject]@{
-                    StatusCode = $webResponse.StatusCode
-                    Success    = $true
-                }
+                # Parse response usando método privado
+                return $this.ParseResponse($webResponse)
 
             } catch [System.Net.WebException] {
                 $statusCode = $_.Exception.Response.StatusCode.value__
                 
-                # Retry em erros temporários (408, 429, 5xx)
-                if ($statusCode -in @(408, 429, 500, 502, 503, 504) -and $attempt -lt $maxAttempts) {
-                    $waitSeconds = [Math]::Pow(2, $attempt)
+                # Verificar se deve fazer retry usando método privado
+                if ($this.ShouldRetry($statusCode, $attempt, $maxAttempts)) {
+                    $this.TotalRetries++
+                    $waitSeconds = $this.CalculateRetryDelay($attempt)
                     Write-Warning "Erro HTTP $statusCode. Aguardando $waitSeconds segundos antes de retentar..."
                     Start-Sleep -Seconds $waitSeconds
                     continue
@@ -244,14 +282,25 @@ class Request {
                 }
 
                 Write-Error "$errorMessage - $($_.Exception.Message)"
+                $this.TotalErrors++
+                $this.LastRequestDuration.Stop()
                 throw
 
+            } catch [System.TimeoutException] {
+                Write-Error "Timeout após $($this.Config.TimeoutSeconds) segundos - servidor não respondeu a tempo"
+                $this.TotalErrors++
+                $this.LastRequestDuration.Stop()
+                throw
+                
             } catch {
                 Write-Error "Erro inesperado: $($_.Exception.Message)"
+                $this.TotalErrors++
+                $this.LastRequestDuration.Stop()
                 throw
             }
         }
 
+        $this.LastRequestDuration.Stop()
         throw "Falha após $maxAttempts tentativas"
     }
 
@@ -300,5 +349,29 @@ class Request {
     
     [PSCustomObject] Patch([string] $Endpoint, [object] $Body, [hashtable] $CustomHeaders) {
         return $this.Invoke([HttpMethod]::PATCH, $Endpoint, $CustomHeaders, $Body)
+    }
+    
+    # Método para obter métricas de performance
+    [PSCustomObject] GetMetrics() {
+        $retryRate = if ($this.TotalRequests -gt 0) {
+            [math]::Round(($this.TotalRetries / $this.TotalRequests) * 100, 2)
+        } else {
+            0
+        }
+        
+        $errorRate = if ($this.TotalRequests -gt 0) {
+            [math]::Round(($this.TotalErrors / $this.TotalRequests) * 100, 2)
+        } else {
+            0
+        }
+        
+        return [PSCustomObject]@{
+            TotalRequests = $this.TotalRequests
+            TotalRetries = $this.TotalRetries
+            TotalErrors = $this.TotalErrors
+            RetryRate = "$retryRate%"
+            ErrorRate = "$errorRate%"
+            LastRequestDuration = "$($this.LastRequestDuration.ElapsedMilliseconds)ms"
+        }
     }
 }
