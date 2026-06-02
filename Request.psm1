@@ -14,6 +14,14 @@
     
     A classe Request pode ser usada standalone ou como classe base para herança.
     
+    ARQUITETURA - PADRÃO DE CARREGAMENTO VIA MANIFEST:
+    Este módulo segue o padrão de carregamento via manifest (RequiredModules + ScriptsToProcess).
+    Classes são carregadas via ScriptsToProcess no .psd1 (SEM 'using module' nos scripts individuais).
+    Isso evita duplicação de tipos em PowerShell 5.1.
+    
+    Scripts externos devem usar 'Import-Module' (não 'using module'):
+        Import-Module '.\Request.psd1' -Force
+    
     IMPORTANTE: Este módulo depende de módulos externos:
     - Logger v1.0.0+ (logging estruturado)
     - Cache v1.0.0+ (cache com TTL)
@@ -24,7 +32,7 @@
 
 .EXAMPLE
     # Uso direto
-    using module '.\Request.psd1'
+    Import-Module '.\Request.psd1' -Force
     
     $config = [PSCustomObject]@{
         BaseUrl = 'https://api.exemplo.com'
@@ -55,37 +63,24 @@
 
 .NOTES
     Author: Claudio Almeida
-    Date: 2026-05-22
-    Version: 3.3.0
+    Date: 2026-06-01
+    Version: 3.6.0
+    
+    Changes v3.6.0:
+    - Logger v1.0.0+ adicionado como RequiredModule
+    - Write-Warning, Write-Verbose, Write-Error substituídos por Logger
+    - Logging estruturado em todos os requests HTTP
+    - Níveis: DEBUG (verbose), WARN (retry), ERROR (falhas)
+    
+    Changes v3.5.1:
+    - Padrão de carregamento via manifest explicitamente documentado
+    - Scripts de exemplo usam Import-Module (não 'using module')
+    - Compatibilidade com PowerShell 5.1 otimizada
     
     Dependências externas:
-    - Logger v1.0.0+ : https://github.com/rpgchess/powershell-logger
-    - Cache v1.0.0+  : https://github.com/rpgchess/powershell-cache
+    - Logger v1.0.0+ : https://github.com/rpgchess/powershell-logger (RequiredModule)
+    - Cache v1.0.0+  : https://github.com/rpgchess/powershell-cache (opcional)
 #>
-
-# Validar dependências externas
-$externalModules = @('Logger', 'Cache')
-$missingModules = @()
-
-foreach ($moduleName in $externalModules) {
-    if (-not (Get-Module -ListAvailable -Name $moduleName)) {
-        $missingModules += $moduleName
-    }
-}
-
-if ($missingModules.Count -gt 0) {
-    $modulesStr = $missingModules -join ', '
-    Write-Warning "⚠️  Request module requer os seguintes módulos externos: $modulesStr"
-    Write-Warning ""
-    Write-Warning "Instale manualmente:"
-    foreach ($module in $missingModules) {
-        Write-Warning "  Import-Module '..\powershell-$($module.ToLower())\$module.psd1' -Force"
-    }
-    Write-Warning ""
-    Write-Warning "Ou clone dos repositórios:"
-    Write-Warning "  git clone https://github.com/rpgchess/powershell-logger"
-    Write-Warning "  git clone https://github.com/rpgchess/powershell-cache"
-}
 
 # Classe Request carregada via ScriptsToProcess no manifesto .psd1
 

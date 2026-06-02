@@ -41,8 +41,11 @@
 
 class Request {
     [RequestConfig] $Config
-    hidden [string] $Request
-    hidden [string] $Response
+    hidden [object] $Request
+    hidden [object] $Response
+    
+    # Logger (observability)
+    hidden [Logger] $Logger
     
     # Métricas de performance (observability)
     hidden [System.Diagnostics.Stopwatch] $LastRequestDuration
@@ -57,18 +60,34 @@ class Request {
         }
         $this.Config = $Config
         $this.LastRequestDuration = [System.Diagnostics.Stopwatch]::new()
+        $this.InitializeLogger()
     }
     
     # Construtor 2: Basic Authentication (Username + Password)
     Request([string] $BaseUrl, [string] $Username, [string] $Password) {
         $this.Config = [RequestConfig]::new($BaseUrl, $Username, $Password)
         $this.LastRequestDuration = [System.Diagnostics.Stopwatch]::new()
+        $this.InitializeLogger()
     }
     
     # Construtor 3: Bearer Token Authentication
     Request([string] $BaseUrl, [string] $Token) {
         $this.Config = [RequestConfig]::new($BaseUrl, $Token)
         $this.LastRequestDuration = [System.Diagnostics.Stopwatch]::new()
+        $this.InitializeLogger()
+    }
+    
+    # Inicializar Logger
+    hidden [void] InitializeLogger() {
+        try {
+            # Criar logger com nível INFO por padrão
+            $loggerConfig = [LoggerConfig]::new([LogLevel]::INFO)
+            $this.Logger = [Logger]::new('Request', $loggerConfig)
+        } catch {
+            # Se Logger não disponível, criar logger nulo (sem operações)
+            Write-Warning "Logger não disponível: $($_.Exception.Message)"
+            $this.Logger = $null
+        }
     }
 
     # Método para obter headers padrão (incluindo autenticação)
@@ -130,7 +149,9 @@ class Request {
         if ([string]::IsNullOrWhiteSpace($cookieDomain)) {
             $uri = [System.Uri]$Url
             $cookieDomain = $uri.Host
-            Write-Verbose "CookieDomain não configurado, usando host da URL: $cookieDomain"
+            if ($this.Logger) {
+                $this.Logger.Debug("CookieDomain não configurado, usando host da URL: $cookieDomain")
+            }
         }
         
         # Criar WebRequestSession
@@ -148,12 +169,15 @@ class Request {
         # Adicionar cookie à sessão
         $session.Cookies.Add($cookie)
         
-        Write-Verbose "Session Cookie configurado: JSESSIONID=$($this.Config.SessionId.Substring(0, [Math]::Min(10, $this.Config.SessionId.Length)))... (Domain: $cookieDomain)"
+        if ($this.Logger) {
+            $sessionIdPreview = $this.Config.SessionId.Substring(0, [Math]::Min(10, $this.Config.SessionId.Length))
+            $this.Logger.Debug("Session Cookie configurado: JSESSIONID=$sessionIdPreview... (Domain: $cookieDomain)")
+        }
         
         return $session
     }
     
-    hidden [PSCustomObject] ParseResponse([Microsoft.PowerShell.Commands.WebResponseObject] $WebResponse) {
+    hidden [PSCustomObject] ParseResponse([object] $WebResponse) {
         if ($WebResponse.Content) {
             $this.Response = $WebResponse.Content
             try {
@@ -205,7 +229,11 @@ class Request {
         $this.TotalRequests++
 
         if ($Method -in [HttpMethod]::GET, [HttpMethod]::DELETE) {
-            $this.Request = $url.Contains('?') ? $url.Split('?')[1] : $Body
+            if ($url.Contains('?')) {
+                $this.Request = $url.Split('?')[1]
+            } else {
+                $this.Request = $Body
+            }
         } else {
             $this.Request = $Body
         }
@@ -233,7 +261,9 @@ class Request {
             try {
                 $attempt++
                 
-                Write-Verbose "[$Method] $url (Tentativa $attempt/$maxAttempts)"
+                if ($this.Logger) {
+                    $this.Logger.Debug("[$Method] $url (Tentativa $attempt/$maxAttempts)")
+                }
                 
                 $params = $this.BuildRequestParams($Method, $url, $headers)
                 
@@ -262,7 +292,9 @@ class Request {
                 if ($this.ShouldRetry($statusCode, $attempt, $maxAttempts)) {
                     $this.TotalRetries++
                     $waitSeconds = $this.CalculateRetryDelay($attempt)
-                    Write-Warning "Erro HTTP $statusCode. Aguardando $waitSeconds segundos antes de retentar..."
+                    if ($this.Logger) {
+                        $this.Logger.Warn("Erro HTTP $statusCode. Aguardando $waitSeconds segundos antes de retentar...")
+                    }
                     Start-Sleep -Seconds $waitSeconds
                     continue
                 }
@@ -281,19 +313,22 @@ class Request {
                     default { "Erro HTTP $statusCode" }
                 }
 
-                Write-Error "$errorMessage - $($_.Exception.Message)"
+                if ($this.Logger) {
+                    $this.Logger.Error("$errorMessage - $($_.Exception.Message)")
+                }
                 $this.TotalErrors++
                 $this.LastRequestDuration.Stop()
                 throw
 
-            } catch [System.TimeoutException] {
-                Write-Error "Timeout após $($this.Config.TimeoutSeconds) segundos - servidor não respondeu a tempo"
-                $this.TotalErrors++
-                $this.LastRequestDuration.Stop()
-                throw
-                
             } catch {
-                Write-Error "Erro inesperado: $($_.Exception.Message)"
+                $errorMsg = if ($_.Exception -is [System.TimeoutException]) {
+                    "Timeout após $($this.Config.TimeoutSeconds) segundos - servidor não respondeu a tempo"
+                } else {
+                    "Erro inesperado: $($_.Exception.Message)"
+                }
+                if ($this.Logger) {
+                    $this.Logger.Error($errorMsg)
+                }
                 $this.TotalErrors++
                 $this.LastRequestDuration.Stop()
                 throw

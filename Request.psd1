@@ -1,5 +1,5 @@
 @{
-    ModuleVersion = '3.5.0'
+    ModuleVersion = '3.6.0'
     GUID = 'f9e8d7c6-b5a4-3210-9876-543210fedcba'
     Author = 'Claudio Almeida'
     CompanyName = 'Personal'
@@ -9,15 +9,20 @@
     
     RootModule = 'Request.psm1'
     
-    # Classes e enums carregados antes do módulo (essencial para 'using module')
+    # Dependências (carregadas automaticamente)
+    RequiredModules = @(@{ModuleName = 'Logger'; RequiredVersion = '1.0.0' })
+    
+    # Classes e enums carregados via ScriptsToProcess (PADRÃO MANIFEST)
+    # IMPORTANTE: SEM 'using module' nos arquivos Core/*.ps1 (evita duplicação de tipos em PS 5.1)
+    # Scripts externos devem usar 'Import-Module' (não 'using module'):
+    #   Import-Module '.\Request.psd1' -Force
     ScriptsToProcess = @(
         'Core\RequestEnums.ps1',
         'Core\RequestConfig.ps1',
         'Core\Request.ps1'
     )
     
-    # Nota: Módulos externos devem ser importados manualmente:
-    # - Logger v1.0.0+ : Import-Module '..\powershell-logger\Logger.psd1' -Force
+    # Nota: Cache é opcional (deve ser importado manualmente se necessário):
     # - Cache v1.0.0+  : Import-Module '..\powershell-cache\Cache.psd1' -Force
     
     FunctionsToExport = @()
@@ -30,6 +35,47 @@
             Tags = @('HTTP', 'REST', 'API', 'Request', 'Retry', 'Client', 'Authentication', 'Basic', 'Bearer', 'Session', 'Cache', 'Logging', 'Metrics', 'Observability', 'Extensibility', 'OOP')
             ProjectUri = 'https://github.com/rpgchess/powershell-request'
             ReleaseNotes = @'
+3.6.0 - 2026-06-01 (Integração Logger)
+LOGGING:
+- 📋 Logger v1.0.0+ adicionado como RequiredModule
+- 🔧 Write-Warning, Write-Verbose, Write-Error substituídos por Logger
+- ✅ Logging estruturado em todos os requests HTTP
+- 🎯 Níveis: DEBUG (verbose), WARN (retry), ERROR (falhas)
+
+BENEFITS:
+- 📊 Observability aprimorada com logging estruturado
+- 🔍 Rastreamento completo de requests/retries/erros
+- 📁 Logs podem ser salvos em arquivo via LoggerConfig
+
+---
+
+3.5.1 - 2026-06-01 (Padrão de Carregamento via Manifest)
+DOCUMENTATION:
+- 📋 Padrão Manifest explicitamente documentado em Request.psm1 e Request.psd1
+- 🔧 Scripts de exemplo usam Import-Module (não 'using module')
+- ✅ Compatibilidade PS 5.1 otimizada (evita duplicação de tipos)
+
+SCRIPTS ATUALIZADOS:
+- Test-Request.ps1 - Import-Module + nota sobre padrão
+- Invoke-JiraSessionExample.ps1 - Import-Module + nota explicativa
+- Invoke-RequestWithCustomErrorHandler.ps1 - Import-Module + nota
+- Test-Session-Authentication.ps1 - Import-Module em 2 ocorrências + exemplo atualizado
+
+BENEFITS:
+- 🎯 Evita erro "Cannot convert X to X" em PowerShell 5.1
+- 📚 Documentação consistente do padrão
+- ⚡ Alinhado com powershell-module-patterns.md
+
+MIGRATION:
+Scripts externos devem usar Import-Module (não 'using module'):
+  # ❌ Antigo: using module '.\Request.psd1'
+  # ✅ Novo:   Import-Module '.\Request.psd1' -Force
+
+IMPACT:
+- 🚫 Sem breaking changes (apenas documentação e exemplos)
+
+---
+
 3.5.0 - 2026-05-29 (Extensibilidade e Manutenibilidade)
 IMPROVEMENTS:
 - 🛠️ Refatoração do Invoke(): Extraição de métodos privados (BuildRequestParams, CreateSessionCookie, ParseResponse, ShouldRetry, CalculateRetryDelay)

@@ -23,7 +23,7 @@ BeforeAll {
     $script:MockApiUrl = 'https://jsonplaceholder.typicode.com'
 }
 
-Describe 'RequestConfig' {
+Describe 'RequestConfig' -Tag 'Unit' {
     Context 'Validation' {
         It 'Should validate basic config without authentication' {
             $config = [RequestConfig]::new('https://api.exemplo.com')
@@ -69,23 +69,23 @@ Describe 'RequestConfig' {
             $str | Should -Not -Match 'secret'
         }
         
-        It 'Should display Bearer token (truncated)' {
+        It 'Should display Bearer token (redacted)' {
             $config = [RequestConfig]::new('https://api.exemplo.com', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9')
             $str = $config.ToString()
-            $str | Should -Match 'Token: eyJhbGciOi\.\.\.'
+            $str | Should -Match 'Token: \[REDACTED\]'
         }
         
-        It 'Should display Session info (truncated)' {
+        It 'Should display Session info (redacted)' {
             $config = [RequestConfig]::new('https://api.exemplo.com')
             $config.AuthType = [AuthType]::Session
             $config.SessionId = 'ABC123DEF456GHI789'
             $str = $config.ToString()
-            $str | Should -Match 'Session: ABC123DEF4\.\.\.'
+            $str | Should -Match 'SessionId: \[REDACTED\]'
         }
     }
 }
 
-Describe 'Request Class' {
+Describe 'Request Class' -Tag 'Unit' {
     Context 'Instantiation' {
         It 'Should create Request with valid config' {
             $config = [RequestConfig]::new('https://api.exemplo.com')

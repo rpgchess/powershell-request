@@ -4,6 +4,74 @@ Todas as mudanças notáveis do projeto Request Module serão documentadas aqui.
 
 ---
 
+## [3.6.0] - 2026-06-01 (Integração Logger)
+
+### 📋 LOGGING
+- **Logger v1.0.0+ como RequiredModule**: Carregamento automático do módulo Logger
+- **Write-* Substituídos**: Write-Warning, Write-Verbose, Write-Error substituídos por Logger estruturado
+- **Logging Estruturado**: Todos os requests HTTP registrados com contexto completo
+- **Níveis de Log**: DEBUG (verbose), WARN (retry), ERROR (falhas HTTP)
+
+### 🔧 IMPLEMENTAÇÃO
+- **InitializeLogger()**: Método privado para criar instância Logger na classe Request
+- **$Logger Hidden**: Propriedade privada para armazenar instância do Logger
+- **Fallback Graceful**: Se Logger não disponível, continua funcionando (usa Write-Warning)
+
+### 🎯 BENEFITS
+- 📊 Observability aprimorada com logging estruturado
+- 🔍 Rastreamento completo de requests/retries/erros via Logger
+- 📁 Logs podem ser salvos em arquivo configurando LoggerConfig
+- 🚫 Sem Write-Host/Write-Verbose poluindo saída do console
+
+### 📝 BREAKING CHANGES
+**Dependência Adicionada**: Logger v1.0.0+ agora é RequiredModule (instalar antes de usar)
+
+```powershell
+# Instalar Logger antes de importar Request
+Import-Module '..\powershell-logger\Logger.psd1' -Force
+Import-Module '.\Request.psd1' -Force
+```
+
+### 🔄 MIGRATION GUIDE
+Nenhuma alteração no código do usuário necessária. Logger é transparente.
+
+---
+
+## [3.5.1] - 2026-06-01 (Padrão de Carregamento via Manifest)
+
+### 📋 DOCUMENTATION
+- **Padrão Manifest Explicitamente Documentado**: Request.psm1 agora documenta claramente o padrão de carregamento via manifest (RequiredModules + ScriptsToProcess)
+- **Request.psd1 Atualizado**: ScriptsToProcess agora inclui comentário explicando que NÃO deve usar `using module` nos arquivos Core/*.ps1
+- **Compatibilidade PS 5.1**: Evita duplicação de tipos quando usado via `Import-Module`
+
+### 🔧 SCRIPTS EXTERNOS
+- **Test-Request.ps1**: Substituído `using module` por `Import-Module` + documentação do padrão
+- **Invoke-JiraSessionExample.ps1**: Substituído `using module` por `Import-Module` + nota explicativa
+- **Invoke-RequestWithCustomErrorHandler.ps1**: Substituído `using module` por `Import-Module` + nota explicativa
+- **Test-Session-Authentication.ps1**: Substituído `using module` por `Import-Module` em 2 ocorrências + exemplo atualizado
+
+### 🎯 BENEFITS
+- **Compatibilidade**: Melhor compatibilidade com PowerShell 5.1 (evita erro "Cannot convert X to X")
+- **Consistência**: Todos os scripts de exemplo seguem o mesmo padrão
+- **Documentação**: Padrão claramente documentado para desenvolvedores que herdam de Request
+- **Manutenibilidade**: Padrão alinhado com powershell-module-patterns.md (memória do repositório)
+
+### 📝 BREAKING CHANGES
+**NENHUM** - Mudanças apenas em documentação e scripts de exemplo. Não há breaking changes no módulo.
+
+### 🔄 MIGRATION GUIDE
+Scripts externos que usam o módulo Request devem usar `Import-Module` ao invés de `using module`:
+
+```powershell
+# ❌ Antigo (pode causar duplicação de tipos em PS 5.1)
+using module '.\Request.psd1'
+
+# ✅ Novo (padrão recomendado)
+Import-Module '.\Request.psd1' -Force
+```
+
+---
+
 ## [3.5.0] - 2026-05-29 (Extensibilidade e Manutenibilidade)
 
 ### 🛠️ CODE REFACTORING
